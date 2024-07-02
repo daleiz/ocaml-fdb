@@ -5,8 +5,6 @@ module F = Fdb.Make (struct
 
   type 'a u = 'a Lwt.t * 'a Lwt.u
 
-  type notification = int
-
   let read = fst
 
   let fill (_, u) = Lwt.wakeup_later u
@@ -19,10 +17,25 @@ module F = Fdb.Make (struct
 
   let return = Lwt.return
 
-  let make_notification f =
-    Lwt_unix.make_notification ~once:true f
-
-  let send_notification = Lwt_unix.send_notification
+  let from_future fut =
+    let ivar = create () in
+    let result = ref (Error Fdb.Error.ok) in
+    let callback = ref (fun _  -> assert false) in
+    let notification = Lwt_unix.make_notification ~once:true (fun () ->
+      (* prevent callback from being GC'ed *)
+      Sys.opaque_identity (ignore callback);
+      fill ivar !result
+    ) in
+    let () =
+    callback := (fun r ->
+      result := r;
+      Lwt_unix.send_notification notification
+    )
+    in
+    let error = Fdb.Future.set_callback fut !callback in 
+    match error with
+    | Ok () -> read ivar
+    | Error _ -> raise (failwith "set_callback error")  
 end)
 
 let failwithf = Format.ksprintf (fun s -> failwith s)

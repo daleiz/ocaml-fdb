@@ -3,8 +3,6 @@ module F = Fdb.Make (struct
 
   type 'a u = 'a Eio.Promise.t * 'a Eio.Promise.u
 
-  type notification = unit Eio.Promise.u 
-
   let read (t, _) = t 
 
   let fill (_, u) = Eio.Promise.resolve u
@@ -17,23 +15,16 @@ module F = Fdb.Make (struct
 
   let return = Eio.Promise.create_resolved
 
-  let make_notification f =
-    let (p, r) = Eio.Promise.create () in
-    let _ = Thread.create
-      (
-        fun () ->
-          try
-            Eio_main.run @@ fun _ -> 
-            let () = Eio.Promise.await p in
-            f ()
-          with 
-            | e -> print_endline ("Caught exception: " ^ Printexc.to_string e)
-      )
+  let from_future fut =
+    let ivar = create () in
+    let callback = (fun r ->
+      let () = fill ivar r in
       ()
-    in
-    r
-
-  let send_notification r = Eio.Promise.resolve r ()   
+    ) in
+    let error = Fdb.Future.set_callback fut callback in 
+    match error with
+    | Ok () -> read ivar
+    | Error _ -> raise (failwith "set_callback error")  
 end)
 
 let failwithf = Format.ksprintf (fun s -> failwith s)

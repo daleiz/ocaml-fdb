@@ -6,12 +6,89 @@ type bigstring =
   , Bigarray.c_layout )
   Bigarray.Array1.t
 
+module Error = struct
+  type t = int
+
+  let to_string t = Fdb_ffi.get_error t
+
+  let error_code t = t
+
+  let ok = 0 
+end
+
+
+module Future = struct
+  type t = unit ptr
+
+  type u = unit ptr
+
+  type callback = (u, Error.t) result -> unit 
+
+  let to_result t =
+    let error = Fdb_ffi.future_get_error t in
+    if error <> 0 then Error error else Ok t
+
+
+  let set_callback t cb =
+    let callback fut _ = 
+      let result = to_result fut in
+      cb result
+    in
+    let error = Fdb_ffi.future_set_callback t callback null in
+    if error <> 0 then Error error else Ok () 
+
+  (*
+  let to_io t =
+    let ivar = Io.create () in
+    let result = ref (Error (-1)) in
+    let callback = ref (fun _ _ -> assert false) in
+    let notification = (Io.make_notification (fun () ->
+      (* prevent callback from being GC'ed *)
+      Sys.opaque_identity (ignore callback);
+      Io.fill ivar !result
+    )) in
+    callback := (fun t _ ->
+      result := to_result t;
+      Io.send_notification notification
+    );
+    let error = Fdb_ffi.future_set_callback t !callback null in
+    if error <> 0 then Io.fill ivar (Error error);
+    Io.read ivar
+  *)
+
+  (*
+  let to_io t =
+    let ivar = Io.create () in
+    let callback = (fun t _ ->
+      let result = to_result t in
+      let () = Io.fill ivar result in
+      ()
+    ) in
+    let error = Fdb_ffi.future_set_callback t callback null in
+    if error <> 0 then Io.fill ivar (Error error);
+    Io.read ivar
+    *)
+
+  (*
+  let extract_value t ~deps ~finaliser ~value =
+    to_io t
+    >>=? fun t ->
+    let finaliser x =
+      Sys.opaque_identity (ignore deps);
+      finaliser x
+    in
+    let value_ptr = allocate (ptr void) null in
+    let error = value t value_ptr in
+    Fdb_ffi.future_destroy t;
+    return (safe_deref value_ptr error ~finaliser)
+    *)
+end
+
+
 module type IO = sig
   type +'a t
 
   type 'a u
-
-  type notification
 
   val return : 'a -> 'a t
 
@@ -25,22 +102,12 @@ module type IO = sig
 
   val read : 'a u -> 'a t
 
-  val make_notification : (unit -> unit) -> notification
-
-  val send_notification : notification -> unit
+  val from_future : Future.t -> (Future.u, Error.t) result t
 end
 
 module Tuple = Tuple
 
 module Network = Network
-
-module Error = struct
-  type t = int
-
-  let to_string t = Fdb_ffi.get_error t
-
-  let error_code t = t
-end
 
 module Streaming_mode = struct
   type t =
@@ -189,45 +256,6 @@ module Make (Io : IO) = struct
 
   let bool_to_int b = if b then 1 else 0
 
-  module Future = struct
-    type t = unit ptr
-
-    let to_result t =
-      let error = Fdb_ffi.future_get_error t in
-      if error <> 0 then Error error else Ok t
-
-    let to_io t =
-      let ivar = Io.create () in
-      let result = ref (Error (-1)) in
-      let callback = ref (fun _ _ -> assert false) in
-      let notification = (Io.make_notification (fun () ->
-        (* prevent callback from being GC'ed *)
-        Sys.opaque_identity (ignore callback);
-        Io.fill ivar !result
-      )) in
-      callback := (fun t _ ->
-        result := to_result t;
-        Io.send_notification notification
-      );
-      let error = Fdb_ffi.future_set_callback t !callback null in
-      if error <> 0 then Io.fill ivar (Error error);
-      Io.read ivar
-
-    (*
-    let extract_value t ~deps ~finaliser ~value =
-      to_io t
-      >>=? fun t ->
-      let finaliser x =
-        Sys.opaque_identity (ignore deps);
-        finaliser x
-      in
-      let value_ptr = allocate (ptr void) null in
-      let error = value t value_ptr in
-      Fdb_ffi.future_destroy t;
-      return (safe_deref value_ptr error ~finaliser)
-      *)
-  end
-
   module Range_result = struct
     type t = {head: Fdb_ffi.Key_value.t structure CArray.t; tail: tail}
 
@@ -270,7 +298,7 @@ module Make (Io : IO) = struct
     let get_bigstring ?(snapshot = false) t ~key =
       let snapshot_flag = bool_to_int snapshot in
       Fdb_ffi.transaction_get t key (String.length key) snapshot_flag
-      |> Future.to_io
+      |> Io.from_future
       >>=? fun future ->
       let present_ptr = allocate Fdb_ffi.fdb_bool_t 0 in
       let value_ptr = allocate (ptr_opt char) None in
@@ -301,7 +329,7 @@ module Make (Io : IO) = struct
       let key = key_selector.Key_selector.key in
       let or_equal_flag = bool_to_int key_selector.or_equal in
       Fdb_ffi.transaction_get_key t key (String.length key) or_equal_flag key_selector.offset snapshot_flag
-      |> Future.to_io
+      |> Io.from_future 
       >>=? fun future ->
       let value_ptr = allocate (ptr char) (from_voidp char null) in
       let length_ptr = allocate int 0 in
@@ -329,7 +357,7 @@ module Make (Io : IO) = struct
           (Streaming_mode.to_int mode)
           iteration snapshot_flag reverse_flag
       in
-      Future.to_io future
+      Io.from_future future
       >>=? fun future ->
       let result_ptr = allocate (ptr Fdb_ffi.Key_value.t) (from_voidp Fdb_ffi.Key_value.t null) in
       let length_ptr = allocate int 0 in
@@ -372,7 +400,7 @@ module Make (Io : IO) = struct
 
     let get_read_version t =
       Fdb_ffi.transaction_get_read_version t
-      |> Future.to_io
+      |> Io.from_future 
       >>=? fun future ->
       let value_ptr = allocate int64_t 0L in
       let err = Fdb_ffi.future_get_int64 future value_ptr in
@@ -401,13 +429,13 @@ module Make (Io : IO) = struct
     let watch t ~key =
       let future = Fdb_ffi.transaction_watch t key (String.length key) in
       Gc.finalise Fdb_ffi.future_destroy future;
-      let io = lazy (Future.to_io future >>|? fun _ -> ()) in
+      let io = lazy (Io.from_future future >>|? fun _ -> ()) in
       { Watch.future; io }
 
-    let commit t = Future.to_io (Fdb_ffi.transaction_commit t) >>|? fun _ -> ()
+    let commit t = Io.from_future (Fdb_ffi.transaction_commit t) >>|? fun _ -> ()
 
     let on_error t ~error_no =
-      Future.to_io (Fdb_ffi.transaction_on_error t error_no) >>| function
+      Io.from_future (Fdb_ffi.transaction_on_error t error_no) >>| function
       | Ok _ -> Ok `Retry
       | Error _ as err -> err
 

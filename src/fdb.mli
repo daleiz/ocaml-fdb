@@ -4,12 +4,32 @@ type bigstring =
   , Bigarray.c_layout )
   Bigarray.Array1.t
 
+module Error : sig
+  type t
+
+  val to_string : t -> string
+
+  val error_code : t -> int
+
+  val ok : t 
+end
+
+
+module Future : sig 
+  type t
+
+  type u 
+
+  type callback = (u, Error.t) result -> unit 
+
+  val set_callback : t -> callback -> (unit, Error.t) result
+
+end
+
 module type IO = sig
   type +'a t
 
   type 'a u
-
-  type notification
 
   val return : 'a -> 'a t
 
@@ -23,17 +43,8 @@ module type IO = sig
 
   val read : 'a u -> 'a t
 
-  val make_notification : (unit -> unit) -> notification
+  val from_future : Future.t -> (Future.u, Error.t) result t
 
-  val send_notification : notification -> unit
-end
-
-module Error : sig
-  type t
-
-  val to_string : t -> string
-
-  val error_code : t -> int
 end
 
 module Streaming_mode : sig
