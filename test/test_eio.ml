@@ -1,0 +1,58 @@
+module F = Fdb.Make (struct
+  type +'a t = 'a Eio.Promise.t 
+
+  type 'a u = 'a Eio.Promise.t * 'a Eio.Promise.u
+
+  type notification = unit Eio.Promise.u 
+
+  let read (t, _) = t 
+
+  let fill (_, u) = Eio.Promise.resolve u
+
+  let create () = Eio.Promise.create ~label:"fdb" () 
+
+  let bind t ~f = Eio.Promise.await t |> f
+
+  let map t ~f = Eio.Promise.await t |> f |> Eio.Promise.create_resolved
+
+  let return = Eio.Promise.create_resolved
+
+  let make_notification f =
+    let (p, r) = Eio.Promise.create () in
+    let _ = Thread.create
+      (
+        fun () ->
+          try
+            Eio_main.run @@ fun _ -> 
+            let () = Eio.Promise.await p in
+            f ()
+          with 
+            | e -> print_endline ("Caught exception: " ^ Printexc.to_string e)
+      )
+      ()
+    in
+    r
+
+  let send_notification r = Eio.Promise.resolve r ()   
+end)
+
+let failwithf = Format.ksprintf (fun s -> failwith s)
+
+let main () =
+  let open F.Infix in
+  begin
+    let key = "foo" in
+    F.open_database () >>=? fun db ->
+    F.Database.set db ~key ~value:"bar" >>=? fun () ->
+    F.Database.get db ~key
+  end >>| function
+  | Ok (Some value) ->
+    if (String.compare value "bar") = 0 then
+      print_string "PASS"
+    else
+      failwithf "FAIL: Expected `bar`, got `%s`" value
+  | Ok None -> failwith "FAIL: Failed to fetch key `bar`"
+  | Error err -> failwithf "FAIL: FDB error `%s`" (Fdb.Error.to_string err)
+
+let () =
+  Eio_main.run @@ fun _ -> main () |> Eio.Promise.await

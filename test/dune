@@ -13,3 +13,9 @@
   (name test_tuple)
   (modules test_tuple)
   (libraries alcotest fdb))
+
+(test
+ (name test_eio)
+ (modules test_eio)
+ (libraries fdb eio eio_main)
+ (ocamlopt_flags (-cclib -lfdb_c)))
