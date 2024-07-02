@@ -157,7 +157,6 @@ end
 
 type transaction = unit ptr
 type database = unit ptr
-type cluster = unit ptr
 
 module Make (Io : IO) = struct
   type +'a io = 'a Io.t
@@ -214,6 +213,7 @@ module Make (Io : IO) = struct
       if error <> 0 then Io.fill ivar (Error error);
       Io.read ivar
 
+    (*
     let extract_value t ~deps ~finaliser ~value =
       to_io t
       >>=? fun t ->
@@ -225,6 +225,7 @@ module Make (Io : IO) = struct
       let error = value t value_ptr in
       Fdb_ffi.future_destroy t;
       return (safe_deref value_ptr error ~finaliser)
+      *)
   end
 
   module Range_result = struct
@@ -374,7 +375,7 @@ module Make (Io : IO) = struct
       |> Future.to_io
       >>=? fun future ->
       let value_ptr = allocate int64_t 0L in
-      let err = Fdb_ffi.future_get_version future value_ptr in
+      let err = Fdb_ffi.future_get_int64 future value_ptr in
       if err = 0 then
         return (Ok !@value_ptr)
       else
@@ -428,12 +429,18 @@ module Make (Io : IO) = struct
   module Database = struct
     type t = database
 
-    let create cluster name =
-      Fdb_ffi.database_create cluster name 2
-      |> Future.extract_value
-        ~deps:[cluster]
-        ~finaliser:Fdb_ffi.database_destroy
-        ~value:Fdb_ffi.future_get_database
+    let create ?cluster_file_path () =
+      let finaliser t =
+        Fdb_ffi.database_destroy t
+      in
+      let db = allocate (ptr void) null in
+      let path =  
+          match cluster_file_path with
+          | None -> ""
+          | Some s -> s
+      in
+      let error = Fdb_ffi.database_create path db in
+      safe_deref db error ~finaliser
 
     let transaction t =
       let finaliser t_ptr =
@@ -482,20 +489,7 @@ module Make (Io : IO) = struct
       with_tx t ~f:(fun tx -> return (Ok (Transaction.watch tx ~key)))
   end
 
-  module Cluster = struct
-    type t = cluster
-
-    let create ?cluster_file_path () =
-      Fdb_ffi.cluster_create cluster_file_path
-      |> Future.extract_value
-        ~deps:[]
-        ~finaliser:Fdb_ffi.cluster_destroy
-        ~value:Fdb_ffi.future_get_cluster
-  end
-
-  let open_database ?cluster_file_path ?(database_name = "DB") () =
-    Network.run ();
-    Cluster.create ?cluster_file_path ()
-    >>=? fun cluster ->
-    Database.create cluster database_name
+    let open_database ?cluster_file_path () =
+      let () = Network.run () in
+      Database.create ?cluster_file_path () |> return 
 end

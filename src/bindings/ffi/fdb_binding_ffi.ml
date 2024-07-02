@@ -5,8 +5,6 @@ module Make(F : Cstubs.FOREIGN) = struct
   (* Types *)
   let fdb_bool_t = int
 
-  let fdb_cluster_option = int
-
   let fdb_cluster_t = ptr void
 
   let fdb_conflict_range_type = int
@@ -53,22 +51,10 @@ module Make(F : Cstubs.FOREIGN) = struct
 
   let stop_network = foreign "fdb_stop_network" (void @-> returning fdb_error_t)
 
-  (* Cluster *)
-  let cluster_create =
-    foreign "fdb_create_cluster" (string_opt @-> returning fdb_future_t)
-
-  let cluster_destroy =
-    foreign "fdb_cluster_destroy" (fdb_cluster_t @-> returning void)
-
-  let cluster_set_option =
-    foreign "fdb_cluster_set_option"
-      ( fdb_cluster_t @-> fdb_cluster_option @-> string @-> int
-      @-> returning fdb_error_t )
-
   (* Database *)
   let database_create =
-    foreign "fdb_cluster_create_database"
-      (fdb_cluster_t @-> string @-> int @-> returning fdb_future_t)
+    foreign "fdb_create_database"
+      (string @-> ptr fdb_database_t @-> returning fdb_error_t)
 
   let database_destroy =
     foreign "fdb_database_destroy" (fdb_database_t @-> returning void)
@@ -197,21 +183,12 @@ module Make(F : Cstubs.FOREIGN) = struct
   let future_get_error =
     foreign "fdb_future_get_error" (fdb_future_t @-> returning fdb_error_t)
 
-  let future_get_version =
-    foreign "fdb_future_get_version"
-      (fdb_future_t @-> ptr int64_t @-> returning fdb_error_t)
+  let future_get_int64 =
+    foreign "fdb_future_get_int64" (fdb_future_t @-> ptr int64_t @->returning fdb_error_t)
 
   let future_get_key =
     foreign "fdb_future_get_key"
       (fdb_future_t @-> ptr (ptr char) @-> ptr int @-> returning fdb_error_t)
-
-  let future_get_cluster =
-    foreign "fdb_future_get_cluster"
-      (fdb_future_t @-> ptr fdb_cluster_t @-> returning fdb_error_t)
-
-  let future_get_database =
-    foreign "fdb_future_get_database"
-      (fdb_future_t @-> ptr fdb_cluster_t @-> returning fdb_error_t)
 
   let future_get_value =
     foreign "fdb_future_get_value"

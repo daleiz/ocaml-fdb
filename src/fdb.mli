@@ -139,7 +139,6 @@ end
 
 type transaction
 type database
-type cluster
 
 module Make (Io : IO) : sig
   type 'a io = 'a Io.t
@@ -234,7 +233,7 @@ module Make (Io : IO) : sig
   module Database : sig
     type t = database
 
-    val create : t -> string -> t or_error io
+    val create : ?cluster_file_path:string -> unit -> t or_error
 
     val transaction : t -> Transaction.t or_error
 
@@ -280,15 +279,9 @@ module Make (Io : IO) : sig
     val atomic_op : t -> key:string -> op:Atomic_op.t -> param:string -> unit or_error io
   end
 
-  module Cluster : sig
-    type t = cluster
-
-    val create : ?cluster_file_path:string -> unit -> t or_error io
-  end
-
-  val open_database :
+    val open_database :
        ?cluster_file_path:string
-    -> ?database_name:string
     -> unit
     -> Database.t or_error io
+
 end
