@@ -252,12 +252,12 @@ module Encoder = struct
 end
 
 let unpack s =
-  match Angstrom.parse_string Decoder.tuple s with
+  match Angstrom.parse_string ~consume:All Decoder.tuple s with
   | Ok t -> t
   | Error err -> failwith (Format.sprintf "Failed to unpack `%s`: %s" s err)
 
 let unpack_bigstring s =
-  match Angstrom.parse_bigstring Decoder.tuple s with
+  match Angstrom.parse_bigstring ~consume:All Decoder.tuple s with
   | Ok t -> t
   | Error err -> failwith err
 

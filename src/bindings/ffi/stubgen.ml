@@ -1,6 +1,6 @@
 let prefix = "fdb_stub"
 
-let c_headers = "#define FDB_API_VERSION 600\n#include <foundationdb/fdb_c.h>"
+let c_headers = "#define FDB_API_VERSION 710\n#include <foundationdb/fdb_c.h>"
 
 let () =
   let generate_ml, generate_c = ref false, ref false in
