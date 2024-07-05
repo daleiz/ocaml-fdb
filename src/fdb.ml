@@ -37,7 +37,7 @@ module Future = struct
   let register_global_root r =
     let g = global_roots in
     let id = g.next in
-    g.roots <- (id, R r) :: g.roots;
+    g.roots <- List.append g.roots [(id, R r)] ;
     g.next <- succ id;
     id
 
