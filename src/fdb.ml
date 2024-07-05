@@ -30,24 +30,32 @@ module Future = struct
 
 
   type value = R : _ -> value
-  type roots = { mutable next : int; mutable roots : (int * value) list }
+  type roots = { mutable next : int; mutable roots : (int * value) list; lock: Mutex.t }
 
-  let global_roots = { next = 0; roots = [] }
+  let global_roots = { next = 0; roots = []; lock = Mutex.create ()  }
 
   let register_global_root r =
     let g = global_roots in
     let id = g.next in
-    g.roots <- List.append g.roots [(id, R r)] ;
-    g.next <- succ id;
-    id
+    Mutex.protect g.lock
+      (
+        fun () ->
+          g.roots <- List.append g.roots [(id, R r)] ;
+          g.next <- succ id;
+          id
+      )
 
   let unregister_global_root id =
     let g = global_roots in
-    g.roots <- List.remove_assoc id g.roots
+    Mutex.protect g.lock
+      (
+        fun () -> g.roots <- List.remove_assoc id g.roots
+      )
 
   let set_callback t cb =
     let callback_ref = ref (fun _ _ -> raise (failwith "uninitialized")) in
     let root_id = register_global_root (R callback_ref) in
+    (* called by another thread *)
     let callback fut _ = 
       let result = to_result fut in
       cb result;
