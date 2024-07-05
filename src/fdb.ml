@@ -29,12 +29,32 @@ module Future = struct
     if error <> 0 then Error error else Ok t
 
 
+  type value = R : _ -> value
+  type roots = { mutable next : int; mutable roots : (int * value) list }
+
+  let global_roots = { next = 0; roots = [] }
+
+  let register_global_root r =
+    let g = global_roots in
+    let id = g.next in
+    g.roots <- (id, R r) :: g.roots;
+    g.next <- succ id;
+    id
+
+  let unregister_global_root id =
+    let g = global_roots in
+    g.roots <- List.remove_assoc id g.roots
+
   let set_callback t cb =
+    let callback_ref = ref (fun _ _ -> raise (failwith "uninitialized")) in
+    let root_id = register_global_root (R callback_ref) in
     let callback fut _ = 
       let result = to_result fut in
-      cb result
+      cb result;
+      unregister_global_root root_id
     in
-    let error = Fdb_ffi.future_set_callback t callback null in
+    let () = callback_ref := callback in
+    let error = Fdb_ffi.future_set_callback t !callback_ref null in
     if error <> 0 then Error error else Ok () 
 
   (*
