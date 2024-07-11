@@ -16,6 +16,9 @@ module Error = struct
   let ok = 0 
 end
 
+let with_fut fut v =
+  Fdb_ffi.future_destroy fut;
+  v
 
 module Future = struct
   type t = unit ptr
@@ -26,7 +29,7 @@ module Future = struct
 
   let to_result t =
     let error = Fdb_ffi.future_get_error t in
-    if error <> 0 then Error error else Ok t
+    if error <> 0 then Error error |> with_fut t  else Ok t
 
 
   type value = R : _ -> value
@@ -343,7 +346,7 @@ module Make (Io : IO) = struct
           in
           Gc.finalise finaliser bytes;
           return (Ok (Some bytes))
-      | 0, 0, _ -> return (Ok None)
+      | 0, 0, _ -> return (Ok None) |> with_fut future
       | err, _, _ when err <> 0 -> return (Error error)
       | _ -> failwith "fdb_future_get_value broke invariant"
 
@@ -433,7 +436,7 @@ module Make (Io : IO) = struct
       let value_ptr = allocate int64_t 0L in
       let err = Fdb_ffi.future_get_int64 future value_ptr in
       if err = 0 then
-        return (Ok !@value_ptr)
+        return (Ok !@value_ptr) |> with_fut future
       else
         return (Error err)
 
@@ -460,11 +463,11 @@ module Make (Io : IO) = struct
       let io = lazy (Io.from_future future >>|? fun _ -> ()) in
       { Watch.future; io }
 
-    let commit t = Io.from_future (Fdb_ffi.transaction_commit t) >>|? fun _ -> ()
+    let commit t = Io.from_future (Fdb_ffi.transaction_commit t) >>|? fun fut -> () |> with_fut fut
 
     let on_error t ~error_no =
       Io.from_future (Fdb_ffi.transaction_on_error t error_no) >>| function
-      | Ok _ -> Ok `Retry
+      | Ok fut -> Ok `Retry |> with_fut fut
       | Error _ as err -> err
 
     let reset t =
